@@ -45,8 +45,8 @@
 ### التثبيت
 ```bash
 # استخرج الملفات
-unzip estidama-plus-complete.zip
-cd estidama-plus
+unzip estidama-plus-web-complete.zip
+cd estidama-plus-web
 
 # ثبّت المكتبات
 pnpm install
