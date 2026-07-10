@@ -51,9 +51,9 @@ export function LoginModal({ open, onClose }: { open: boolean; onClose: () => vo
 
         <div className="mt-6 space-y-3">
           <a
-            href="https://estidama-plus-api.onrender.com"
-            className="btn btn-light w-full"
-          >
+  href="https://estidama-plus-api.onrender.com/api/auth/google"
+  className="btn btn-light w-full"
+>
             <GoogleIcon />
             المتابعة عبر Google
           </a>
