@@ -791,7 +791,7 @@ export default function Home() {
             <div className="space-y-3">
               {/* Google Sign In */}
               <a
-                href="/api/auth/google"
+                href="https://estidama-plus-api.onrender.com"
                 className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl font-bold transition-all hover:scale-[1.01] active:scale-[0.99] border"
                 style={{ background: '#fff', color: '#1A1A2E', borderColor: '#E5E7EB' }}
               >
