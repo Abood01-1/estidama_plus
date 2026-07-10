@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "PowerShell($conn = Get-NetTCPConnection -LocalPort 3005 -State Listen -ErrorAction SilentlyContinue; if \\($conn\\) { Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue; \"Stopped test server\" } else { \"none\" })"
+    ]
+  }
+}
