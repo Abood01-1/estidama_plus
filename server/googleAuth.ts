@@ -149,7 +149,7 @@ export function registerGoogleAuthRoutes(app: Express) {
       const sessionToken = await sdk.signSession(
         {
           openId,
-          appId: ENV.appId || "estidama-plus-web",
+          appId: ENV.appId,
           name: displayName,
         },
         { expiresInMs: ONE_YEAR_MS }
