@@ -55,8 +55,6 @@ cp .env.example .env.local
 
 **محتوى ملف `.env.local`:**
 ```
-# قاعدة البيانات (اختياري - للتطوير المحلي)
-DATABASE_URL=mysql://root:password@localhost:3306/estidama_plus
 
 # مفاتيح التطبيق (اختياري - للميزات المتقدمة)
 VITE_APP_ID=your_app_id
