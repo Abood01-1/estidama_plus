@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { X, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { startSupabaseLogin } from "@/lib/supabaseAuth";
 
 function GoogleIcon() {
   return (
@@ -20,9 +22,25 @@ function AppleIcon() {
   );
 }
 
-// Real sign-in dialog. Google works end-to-end via /api/auth/google.
+// Google Sign-In via Supabase Auth — no Render cold-start delay.
 export function LoginModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
   if (!open) return null;
+
+  const handleGoogleLogin = async () => {
+    if (loading) return;
+    setError(null);
+    setLoading(true);
+    try {
+      await startSupabaseLogin();
+      // On success Supabase navigates to Google — this component unmounts.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تسجيل الدخول. حاول مرة أخرى.");
+      setLoading(false);
+    }
+  };
 
   return (
     <div
@@ -50,13 +68,15 @@ export function LoginModal({ open, onClose }: { open: boolean; onClose: () => vo
         </p>
 
         <div className="mt-6 space-y-3">
-          <a
-  href="https://estidama-plus-api.onrender.com/api/auth/google"
-  className="btn btn-light w-full"
->
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            disabled={loading}
+            className="btn btn-light w-full disabled:cursor-wait disabled:opacity-70"
+          >
             <GoogleIcon />
-            المتابعة عبر Google
-          </a>
+            {loading ? "جاري التحميل..." : "المتابعة عبر Google"}
+          </button>
           <button
             type="button"
             disabled
@@ -67,6 +87,12 @@ export function LoginModal({ open, onClose }: { open: boolean; onClose: () => vo
             المتابعة عبر Apple (قريبًا)
           </button>
         </div>
+
+        {error && (
+          <p className="mt-3 rounded-xl bg-red-50 p-3 text-center text-xs font-medium text-red-600">
+            {error}
+          </p>
+        )}
 
         <div className="mt-5 flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <ShieldCheck className="h-4 w-4 text-primary" />

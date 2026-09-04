@@ -2,6 +2,7 @@ import { ArrowRight, Sparkles, Target, LayoutDashboard, Globe, Trophy, FileText,
 import { useLocation } from "wouter";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { startSupabaseLogin } from "@/lib/supabaseAuth";
 import { BRAND, MARKETING_NAV, HOW_IT_WORKS, FEATURES, IMPACT_STATS } from "@/lib/brand";
 
 // Google Icon component
@@ -789,15 +790,16 @@ export default function Home() {
             </div>
 
             <div className="space-y-3">
-              {/* Google Sign In */}
-              <a
-                href="https://estidama-plus-api.onrender.com/api/auth/google"
+              {/* Google Sign In — Supabase Auth (no Render cold-start) */}
+              <button
+                type="button"
+                onClick={() => void startSupabaseLogin()}
                 className="w-full flex items-center justify-center gap-3 py-3.5 rounded-2xl font-bold transition-all hover:scale-[1.01] active:scale-[0.99] border"
                 style={{ background: '#fff', color: '#1A1A2E', borderColor: '#E5E7EB' }}
               >
                 <GoogleIcon />
                 المتابعة عبر Google
-              </a>
+              </button>
 
               {/* Divider */}
               <div className="flex items-center gap-3 py-2">
