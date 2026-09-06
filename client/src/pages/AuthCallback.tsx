@@ -85,6 +85,12 @@ export default function AuthCallbackPage() {
       // a manual `getSession()` call and cause the code to be processed twice.
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+        console.log("[AuthCallback] exchange result:", {
+  hasSession: !!data?.session,
+  errorMessage: error?.message,
+  errorCode: error?.code,
+  errorStatus: error?.status,
+});
 
         if (cancelled) return;
 
