@@ -5,14 +5,28 @@ import { useLocation } from "wouter";
 
 /**
  * Handles the redirect back from Google via Supabase.
+
+ * The authorization code returned by Google (PKCE flow) is explicitly
+ * exchanged for a session using `supabase.auth.exchangeCodeForSession(code)`.
+
+ * Steps:
+ * 1. If Google returned `error=access_denied`, show the cancellation message.
+
+ * 2. Try to restore an already-established session first (the client's
+ *     `detectSessionInUrl` may have already exchanged the code). This avoids
+ *     exchanging the same authorization code twice.
  *
- * Supabase's `getSession()` + `detectSessionInUrl: true` exchanges the
- * authorization code (PKCE) and stores the session in localStorage.
- * This page simply waits for that to finish, then sends the user to
- * - their original destination (saved in sessionStorage before sign-in), or
- * - the home page.
+ * 3. If no session exists yet, extract `?code=...` from the URL and exchange
+ *     it for a session exactly once.
+
+ * 4. On success, redirect to the saved destination (or home).
  *
- * The page renders in the app's existing branding — no new visual design.
+ * 5. On failure, show an error message and log the actual error to the console.
+
+
+
+ * No timeout is needed — the exchange either succeeds or fails deterministically.
+
  */
 export default function AuthCallbackPage() {
   const [, setLocation] = useLocation();
@@ -27,7 +41,9 @@ export default function AuthCallbackPage() {
     const search = window.location.search;
 
     // Google can redirect back with ?error=access_denied if the user cancels.
-    const oauthError = isOAuthErrorCallback(search);
+
+
+    const oauthError = isOAuthErrorCallback(search;
     if (oauthError) {
       setStatus("error");
       setErrorMessage("تم إلغاء تسجيل الدخول عبر Google.");
@@ -35,7 +51,6 @@ export default function AuthCallbackPage() {
     }
 
     let cancelled = false;
-    let authListener: { subscription: { unsubscribe: () => void } } | null = null;
 
     const finish = (session: { user: unknown } | null) => {
       if (cancelled) return;
@@ -46,15 +61,21 @@ export default function AuthCallbackPage() {
       }
 
       // Clear the OAuth query params from the address bar.
+
+
       window.history.replaceState({}, "", window.location.pathname);
 
       // Return to the destination the user originally wanted.
+
+
       let destination = "/";
       try {
         const saved = sessionStorage.getItem("estidama-post-login-redirect");
         if (saved) {
           destination = saved;
           // Only allow same-origin paths to avoid open redirects.
+
+
           if (!destination.startsWith("/")) destination = "/";
         }
       } catch {}
@@ -62,59 +83,66 @@ export default function AuthCallbackPage() {
         sessionStorage.removeItem("estidama-post-login-redirect");
       } catch {}
 
-      // Let React state settle before navigating further.
-      setTimeout(() => {
-        window.location.assign(destination);
-      }, 50);
+      window.location.assign(destination);
     };
 
     (async () => {
-      // Listen for the session to be created by Supabase's URL code exchange.
-      // This is more reliable than getSession() alone, which can race with the
-      // PKCE exchange when the page first loads.
-      const { data: listenerData } = supabase.auth.onAuthStateChange(
-        (_event, session) => {
-          if (session) {
-            authListener?.subscription.unsubscribe();
-            finish(session);
-          }
-        }
-      );
-      authListener = listenerData;
+      const params = new URLSearchParams(search;
+      const code = params.get("code");
 
-      // Also try getSession() directly — it handles the code exchange too.
-      const { data, error } = await supabase.auth.getSession();
+      // First check if a session already exists — the client's automatic
+      // `detectSessionInUrl` exchange may have already completed. This avoids
+      // exchanging the same authorization code twice.
+
+
+      const { data: existingData, error: existingError } = await supabase.auth.getSession();
 
       if (cancelled) return;
 
-      if (error) {
-        console.error("[AuthCallback] getSession failed:", error.message);
-        authListener?.subscription.unsubscribe();
+      if (existingError) {
+        console.error("[AuthCallback] getSession failed:", existingError.message);
         setStatus("error");
         setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
         return;
       }
 
-      if (data.session) {
-        authListener?.subscription.unsubscribe();
-        finish(data.session);
+      if (existingData.session) {
+        finish(existingData.session;
         return;
       }
 
-      // No session yet — the onAuthStateChange listener above will catch it
-      // once Supabase finishes exchanging the code. Add a safety timeout so
-      // the user is never stuck on a blank spinner.
-      setTimeout(() => {
+      // No session yet — if we have an authorization code, exchange it explicitly.
+
+
+      // This is the authoritative PKCE completion step that `detectSessionInUrl`
+      // can miss in production, causing the previous "Login timed out" error.
+
+
+      if (code) {
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code;
+
         if (cancelled) return;
-        authListener?.subscription.unsubscribe();
-        setStatus("error");
-        setErrorMessage("انتهت مهلة تسجيل الدخول. حاول مرة أخرى.");
-      }, 15_000);
+
+        if (error) {
+          console.error("[AuthCallback] exchangeCodeForSession failed:", error.message);
+          setStatus("error");
+          setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
+          return;
+        }
+
+        finish(data.session;
+        return;
+      }
+
+      // No code and no existing session — nothing more we can do here.
+
+
+      setStatus("error");
+      setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
     })();
 
     return () => {
       cancelled = true;
-      authListener?.subscription.unsubscribe();
     };
   }, [setLocation]);
 
