@@ -40,16 +40,6 @@ export default function AuthCallbackPage() {
 
     const search = window.location.search;
 
-    // Google can redirect back with ?error=access_denied if the user cancels.
-
-
-    const oauthError = isOAuthErrorCallback(search);
-    if (oauthError) {
-      setStatus("error");
-      setErrorMessage("تم إلغاء تسجيل الدخول عبر Google.");
-      return;
-    }
-
     let cancelled = false;
 
     const finish = (session: { user: unknown } | null) => {
@@ -111,7 +101,24 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // No session yet — if we have an authorization code, exchange it explicitly.
+      // No session yet — check for genuine OAuth errors (e.g. user cancelled at Google).
+      // A valid `code` in the URL takes precedence and is handled below.
+
+
+      const oauthError = isOAuthErrorCallback(search);
+      if (oauthError) {
+        setStatus("error");
+        // Only show the cancellation message for a genuine access_denied.
+        // Any other OAuth error is a generic failure, not a user cancellation.
+        setErrorMessage(
+          oauthError === "access_denied"
+            ? "تم إلغاء تسجيل الدخول عبر Google."
+            : "تعذر إتمام تسجيل الدخول. حاول مرة أخرى."
+        );
+        return;
+      }
+
+      // No session and no OAuth error — if we have an authorization code, exchange it explicitly.
 
 
       // This is the authoritative PKCE completion step that `detectSessionInUrl`

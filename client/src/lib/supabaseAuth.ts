@@ -57,7 +57,12 @@ export async function startSupabaseLogin(): Promise<void> {
 export function isOAuthErrorCallback(search: string): string | null {
   const params = new URLSearchParams(search);
   const error = params.get("error");
-  const errorDescription = params.get("error_description");
-  if (error) return errorDescription ?? error;
+  const code = params.get("code");
+  // A valid authorization code means this is a successful OAuth callback.
+  // The code takes precedence over any error param that may also be present.
+  if (code) return null;
+  // Return the error code itself (e.g. "access_denied") so callers can
+  // distinguish a genuine user cancellation from other OAuth failures.
+  if (error) return error;
   return null;
 }
