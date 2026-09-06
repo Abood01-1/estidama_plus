@@ -6,16 +6,25 @@ import { useLocation } from "wouter";
 /**
  * Handles the redirect back from Google via Supabase.
  *
- * The authorization code returned by Google (PKCE flow) is explicitly
- * exchanged for a session using `supabase.auth.exchangeCodeForSession(code)`.
+ * The Supabase client is created with `detectSessionInUrl: true` and
+ * `flowType: "pkce"`. On this callback URL the GoTrueClient automatically
+ * detects the PKCE `code` in the address bar during its own initialization —
+ * BEFORE React mounts — exchanges it for a session, and strips the `code`
+ * query parameter from the URL via `history.replaceState`.
+ *
+ * Therefore AuthCallback must NOT call `exchangeCodeForSession()` again.
+ * Re-exchanging the same single-use authorization code (or calling it after
+ * the library already stripped the code from the URL) always fails and shows
+ * the generic sign-in error. Instead we await the client's initialization via
+ * `getSession()`, which resolves either with the exchanged session or the
+ * underlying error.
  *
  * Steps:
  * 1. If Google returned `error=access_denied`, show the cancellation message.
- * 2. If a `code` is present, exchange it for a session exactly once.
+ * 2. Otherwise wait for `getSession()` — the PKCE exchange has already been
+ *    performed by the client's initialization.
  * 3. On success, redirect to the saved destination (or home).
  * 4. On failure, show an error message and log the actual error to the console.
- *
- * No timeout is needed — the exchange either succeeds or fails deterministically.
  */
 export default function AuthCallbackPage() {
   const [, setLocation] = useLocation();
@@ -61,10 +70,8 @@ export default function AuthCallbackPage() {
 
     (async () => {
       const params = new URLSearchParams(search);
-      const code = params.get("code");
 
       // Check for genuine OAuth errors (e.g. user cancelled at Google).
-      // A valid `code` in the URL takes precedence and is handled below.
       const oauthError = isOAuthErrorCallback(search);
       if (oauthError) {
         setStatus("error");
@@ -78,43 +85,26 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // If we have an authorization code, exchange it explicitly.
-      // This is the authoritative PKCE completion step — the code is
-      // exchanged exactly once. `getSession()` is intentionally NOT used
-      // to perform the exchange, since `detectSessionInUrl` can race with
-      // a manual `getSession()` call and cause the code to be processed twice.
-      if (code) {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-        console.log("[AuthCallback] exchange result:", {
-  hasSession: !!data?.session,
-  errorMessage: error?.message,
-  errorCode: error?.code,
-  errorStatus: error?.status,
-});
-console.log("abonezzzzzzzzzzar")
-        if (cancelled) return;
+      // The GoTrueClient (created in @/lib/supabase with `detectSessionInUrl:
+      // true`) already detected the PKCE code in this URL during its automatic
+      // initialization and exchanged it for a session — it also removed the
+      // `code` param from the address bar. `getSession()` awaits that
+      // initialization promise, so this resolves with the exchanged session or
+      // the real error. Do NOT call `exchangeCodeForSession()` here: the code
+      // is single-use and would already be consumed (or stripped from the URL).
+      const { data, error } = await supabase.auth.getSession();
+      if (cancelled) return;
 
+      if (error || !data.session) {
         if (error) {
-          console.error(
-            "[AuthCallback] exchangeCodeForSession failed:",
-            error.message,
-            "code:",
-            error.code,
-            "status:",
-            error.status
-          );
-          setStatus("error");
-          setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
-          return;
+          console.error("[AuthCallback] getSession failed:", error.message);
         }
-
-        finish(data.session);
+        setStatus("error");
+        setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
         return;
       }
 
-      // No code and no OAuth error — nothing more we can do here.
-      setStatus("error");
-      setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
+      finish(data.session);
     })();
 
     return () => {
