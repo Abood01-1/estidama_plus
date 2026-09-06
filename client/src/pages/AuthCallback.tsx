@@ -91,7 +91,7 @@ export default function AuthCallbackPage() {
   errorCode: error?.code,
   errorStatus: error?.status,
 });
-
+console.log("abonezzzzzzzzzzar")
         if (cancelled) return;
 
         if (error) {
