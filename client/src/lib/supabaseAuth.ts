@@ -9,6 +9,27 @@ import { supabase } from "./supabase";
  * Google authentication completes.
  */
 export async function startSupabaseLogin(): Promise<void> {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error(
+      "[SupabaseAuth] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. " +
+        "Google Sign-In cannot start."
+    );
+    throw new Error(
+      "تعذر بدء تسجيل الدخول عبر Google. إعدادات Supabase غير مكتملة."
+    );
+  }
+
+  // Save the current destination so the callback page can return here.
+  try {
+    const destination = window.location.pathname + window.location.search;
+    sessionStorage.setItem("estidama-post-login-redirect", destination);
+  } catch {
+    // sessionStorage unavailable — callback will fall back to "/".
+  }
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {

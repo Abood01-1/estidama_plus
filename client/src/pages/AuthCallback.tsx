@@ -35,21 +35,11 @@ export default function AuthCallbackPage() {
     }
 
     let cancelled = false;
+    let authListener: { subscription: { unsubscribe: () => void } } | null = null;
 
-    (async () => {
-      // Let Supabase exchange the auth code for a session.
-      const { data, error } = await supabase.auth.getSession();
-
+    const finish = (session: { user: unknown } | null) => {
       if (cancelled) return;
-
-      if (error) {
-        console.error("[AuthCallback] getSession failed:", error.message);
-        setStatus("error");
-        setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
-        return;
-      }
-
-      if (!data.session) {
+      if (!session) {
         setStatus("error");
         setErrorMessage("تعذر العثور على جلسة تسجيل دخول. حاول مرة أخرى.");
         return;
@@ -76,10 +66,55 @@ export default function AuthCallbackPage() {
       setTimeout(() => {
         window.location.assign(destination);
       }, 50);
+    };
+
+    (async () => {
+      // Listen for the session to be created by Supabase's URL code exchange.
+      // This is more reliable than getSession() alone, which can race with the
+      // PKCE exchange when the page first loads.
+      const { data: listenerData } = supabase.auth.onAuthStateChange(
+        (_event, session) => {
+          if (session) {
+            authListener?.subscription.unsubscribe();
+            finish(session);
+          }
+        }
+      );
+      authListener = listenerData;
+
+      // Also try getSession() directly — it handles the code exchange too.
+      const { data, error } = await supabase.auth.getSession();
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("[AuthCallback] getSession failed:", error.message);
+        authListener?.subscription.unsubscribe();
+        setStatus("error");
+        setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
+        return;
+      }
+
+      if (data.session) {
+        authListener?.subscription.unsubscribe();
+        finish(data.session);
+        return;
+      }
+
+      // No session yet — the onAuthStateChange listener above will catch it
+      // once Supabase finishes exchanging the code. Add a safety timeout so
+      // the user is never stuck on a blank spinner.
+      setTimeout(() => {
+        if (cancelled) return;
+        authListener?.subscription.unsubscribe();
+        setStatus("error");
+        setErrorMessage("انتهت مهلة تسجيل الدخول. حاول مرة أخرى.");
+      }, 15_000);
     })();
 
     return () => {
       cancelled = true;
+      authListener?.subscription.unsubscribe();
     };
   }, [setLocation]);
 

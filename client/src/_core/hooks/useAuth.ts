@@ -146,7 +146,9 @@ export function useAuth(options?: UseAuthOptions) {
       sessionStorage.setItem("estidama-post-login-redirect", destination);
     } catch {}
 
-    void startSupabaseLogin();
+    void startSupabaseLogin().catch(err => {
+      console.error("[useAuth] Auto-login failed:", err);
+    });
   }, [redirectOnUnauthenticated, redirectPath, sbSession.initializing, state.isAuthenticated]);
 
   return {
