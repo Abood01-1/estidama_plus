@@ -16,7 +16,7 @@ function GoogleIcon({ className }: { className?: string }) {
     </svg>
   );
 }
-
+console.log("azazazazazazazazazazazazazazazaz")
 // Section label component
 function SectionLabel({ children }: { children: string }) {
   return (
