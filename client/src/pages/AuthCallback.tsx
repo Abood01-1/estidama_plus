@@ -5,28 +5,17 @@ import { useLocation } from "wouter";
 
 /**
  * Handles the redirect back from Google via Supabase.
-
+ *
  * The authorization code returned by Google (PKCE flow) is explicitly
  * exchanged for a session using `supabase.auth.exchangeCodeForSession(code)`.
-
+ *
  * Steps:
  * 1. If Google returned `error=access_denied`, show the cancellation message.
-
- * 2. Try to restore an already-established session first (the client's
- *     `detectSessionInUrl` may have already exchanged the code). This avoids
- *     exchanging the same authorization code twice.
+ * 2. If a `code` is present, exchange it for a session exactly once.
+ * 3. On success, redirect to the saved destination (or home).
+ * 4. On failure, show an error message and log the actual error to the console.
  *
- * 3. If no session exists yet, extract `?code=...` from the URL and exchange
- *     it for a session exactly once.
-
- * 4. On success, redirect to the saved destination (or home).
- *
- * 5. On failure, show an error message and log the actual error to the console.
-
-
-
  * No timeout is needed — the exchange either succeeds or fails deterministically.
-
  */
 export default function AuthCallbackPage() {
   const [, setLocation] = useLocation();
@@ -51,21 +40,15 @@ export default function AuthCallbackPage() {
       }
 
       // Clear the OAuth query params from the address bar.
-
-
       window.history.replaceState({}, "", window.location.pathname);
 
       // Return to the destination the user originally wanted.
-
-
       let destination = "/";
       try {
         const saved = sessionStorage.getItem("estidama-post-login-redirect");
         if (saved) {
           destination = saved;
           // Only allow same-origin paths to avoid open redirects.
-
-
           if (!destination.startsWith("/")) destination = "/";
         }
       } catch {}
@@ -80,31 +63,8 @@ export default function AuthCallbackPage() {
       const params = new URLSearchParams(search);
       const code = params.get("code");
 
-      // First check if a session already exists — the client's automatic
-      // `detectSessionInUrl` exchange may have already completed. This avoids
-      // exchanging the same authorization code twice.
-
-
-      const { data: existingData, error: existingError } = await supabase.auth.getSession();
-
-      if (cancelled) return;
-
-      if (existingError) {
-        console.error("[AuthCallback] getSession failed:", existingError.message);
-        setStatus("error");
-        setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
-        return;
-      }
-
-      if (existingData.session) {
-        finish(existingData.session);
-        return;
-      }
-
-      // No session yet — check for genuine OAuth errors (e.g. user cancelled at Google).
+      // Check for genuine OAuth errors (e.g. user cancelled at Google).
       // A valid `code` in the URL takes precedence and is handled below.
-
-
       const oauthError = isOAuthErrorCallback(search);
       if (oauthError) {
         setStatus("error");
@@ -118,20 +78,25 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // No session and no OAuth error — if we have an authorization code, exchange it explicitly.
-
-
-      // This is the authoritative PKCE completion step that `detectSessionInUrl`
-      // can miss in production, causing the previous "Login timed out" error.
-
-
+      // If we have an authorization code, exchange it explicitly.
+      // This is the authoritative PKCE completion step — the code is
+      // exchanged exactly once. `getSession()` is intentionally NOT used
+      // to perform the exchange, since `detectSessionInUrl` can race with
+      // a manual `getSession()` call and cause the code to be processed twice.
       if (code) {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
         if (cancelled) return;
 
         if (error) {
-          console.error("[AuthCallback] exchangeCodeForSession failed:", error.message);
+          console.error(
+            "[AuthCallback] exchangeCodeForSession failed:",
+            error.message,
+            "code:",
+            error.code,
+            "status:",
+            error.status
+          );
           setStatus("error");
           setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
           return;
@@ -141,9 +106,7 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      // No code and no existing session — nothing more we can do here.
-
-
+      // No code and no OAuth error — nothing more we can do here.
       setStatus("error");
       setErrorMessage("تعذر إتمام تسجيل الدخول. حاول مرة أخرى.");
     })();
