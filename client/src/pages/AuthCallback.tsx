@@ -43,7 +43,7 @@ export default function AuthCallbackPage() {
     // Google can redirect back with ?error=access_denied if the user cancels.
 
 
-    const oauthError = isOAuthErrorCallback(search;
+    const oauthError = isOAuthErrorCallback(search);
     if (oauthError) {
       setStatus("error");
       setErrorMessage("تم إلغاء تسجيل الدخول عبر Google.");
@@ -87,7 +87,7 @@ export default function AuthCallbackPage() {
     };
 
     (async () => {
-      const params = new URLSearchParams(search;
+      const params = new URLSearchParams(search);
       const code = params.get("code");
 
       // First check if a session already exists — the client's automatic
@@ -107,7 +107,7 @@ export default function AuthCallbackPage() {
       }
 
       if (existingData.session) {
-        finish(existingData.session;
+        finish(existingData.session);
         return;
       }
 
@@ -119,7 +119,7 @@ export default function AuthCallbackPage() {
 
 
       if (code) {
-        const { data, error } = await supabase.auth.exchangeCodeForSession(code;
+        const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
         if (cancelled) return;
 
@@ -130,7 +130,7 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        finish(data.session;
+        finish(data.session);
         return;
       }
 
