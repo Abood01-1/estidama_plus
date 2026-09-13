@@ -4,9 +4,28 @@ import { InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _loggedDbEnv = false;
+
+// Safe diagnostic: logs only whether DATABASE_URL exists plus the
+// hostname/database name. Never logs the URL, username, or password.
+function logDbEnvOnce(): void {
+  if (_loggedDbEnv) return;
+  _loggedDbEnv = true;
+  const raw = process.env.DATABASE_URL;
+  console.log("[Database] DATABASE_URL EXISTS:", Boolean(raw));
+  if (!raw) return;
+  try {
+    const parsed = new URL(raw);
+    const dbName = parsed.pathname.replace(/^\//, "").split("/")[0] || "(unknown)";
+    console.log("[Database] host:", parsed.hostname, "db:", dbName);
+  } catch {
+    console.log("[Database] host: (unparseable)");
+  }
+}
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
+  logDbEnvOnce();
   if (!_db && process.env.DATABASE_URL) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
