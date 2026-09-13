@@ -50,7 +50,7 @@ queryClient.getMutationCache().subscribe(event => {
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: "https://estidama-plus-api.onrender.com/api/trpc",
       transformer: superjson,
       headers() {
         // 1) New: Supabase access token as Bearer — server verifies JWT (no cold
