@@ -24,11 +24,29 @@ function logDbEnvOnce(): void {
 }
 
 // Lazily create the drizzle instance so local tooling can run without a DB.
+//
+// TiDB Cloud requires TLS. The stored DATABASE_URL carries the SSL intent as a
+// URL query param in JSON form (ssl={"rejectUnauthorized":true}), which mysql2
+// rejects as an unknown SSL profile. Strip any `ssl` query param from the URL
+// and configure TLS explicitly via the mysql2 connection options instead.
+// Host/user/password/database are always taken from process.env.DATABASE_URL.
 export async function getDb() {
   logDbEnvOnce();
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const raw = process.env.DATABASE_URL;
+      const parsed = new URL(raw);
+      const database = parsed.pathname.replace(/^\//, "").split("/")[0];
+      _db = drizzle({
+        connection: {
+          host: parsed.hostname,
+          port: parsed.port ? Number(parsed.port) : 4000,
+          user: decodeURIComponent(parsed.username),
+          password: decodeURIComponent(parsed.password),
+          database: database || undefined,
+          ssl: { rejectUnauthorized: true },
+        },
+      });
     } catch (error: unknown) {
       // Detailed init diagnostics only — never log DATABASE_URL or credentials.
       const err = error as { message?: unknown; code?: unknown; name?: unknown; stack?: unknown };
