@@ -30,7 +30,7 @@ export function SiteNavbar({ onLogin }: { onLogin: () => void }) {
     >
       <nav className="container flex h-16 items-center justify-between gap-4">
         <button onClick={() => setLocation("/")} aria-label="الصفحة الرئيسية">
-          <Logo />
+          <Logo variant={scrolled ? "dark" : "light"} />
         </button>
 
         {/* Desktop links */}

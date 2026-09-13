@@ -137,7 +137,7 @@ export default function Home() {
                 <circle cx="27.5" cy="13.5" r="1.2" fill="#CF142B" />
               </svg>
             </span>
-            <span className="font-display text-lg font-extrabold tracking-tight">
+            <span className="font-display text-lg font-extrabold tracking-tight" style={{ color: scrolled ? BRAND.colors.ink : "#ffffff" }}>
               Estidama <span style={{ color: BRAND.colors.red }}>AI</span>
             </span>
           </a>
