@@ -30,10 +30,27 @@ function getBearerToken(
 async function resolveSupabaseUser(
   req: CreateExpressContextOptions["req"]
 ): Promise<User | null> {
+  const rawAuth = req.headers.authorization;
+  // TEMP DIAG (safe): presence/scheme only, never logs the header value or token.
+  console.log(
+    "[AuthDiag] backend authHeaderPresent:",
+    typeof rawAuth === "string" && rawAuth.length > 0,
+    "isBearer:",
+    typeof rawAuth === "string" && rawAuth.startsWith("Bearer ")
+  );
   const token = getBearerToken(req);
+  // TEMP DIAG (safe): boolean + length only.
+  console.log(
+    "[AuthDiag] backend extractedToken hasToken:",
+    Boolean(token),
+    "len:",
+    token ? token.length : 0
+  );
   if (!token) return null;
 
   const verified = await verifySupabaseToken(token);
+  // TEMP DIAG (safe): success boolean only; detail lives in supabaseAuth warn.
+  console.log("[AuthDiag] backend verifySupabaseToken success:", Boolean(verified));
   if (!verified) return null;
 
   const openId = supabaseOpenId(verified);
@@ -87,6 +104,8 @@ export async function createContext(
   } catch {
     user = null;
   }
+  // TEMP DIAG (safe): whether ctx.user resolved from Supabase path.
+  console.log("[AuthDiag] backend supabasePath userFound:", Boolean(user));
 
   // 2) Fallback to the legacy session cookie / Manus OAuth flow so existing
   //    logged-in users (pre-Supabase) keep working.

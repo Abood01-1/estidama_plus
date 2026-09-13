@@ -57,6 +57,13 @@ const trpcClient = trpc.createClient({
         //    Supabase auth.getUser() (no cold start required). Async fetch so
         //    the token is fresh even right after the OAuth redirect.
         const token = (await getSupabaseAccessToken()) ?? supabaseAccessToken;
+        // TEMP DIAG (safe): boolean + length only, never logs the token.
+        console.log(
+          "[AuthDiag] tRPC headers hasToken:",
+          Boolean(token),
+          "len:",
+          token ? token.length : 0
+        );
         if (token) {
           return { Authorization: `Bearer ${token}` };
         }

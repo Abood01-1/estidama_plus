@@ -22,6 +22,13 @@ export async function verifySupabaseToken(
 ): Promise<SupabaseVerifiedUser | null> {
   if (!ENV.supabaseUrl || !ENV.supabaseAnonKey) {
     console.warn("[SupabaseAuth] SUPABASE_URL / SUPABASE_ANON_KEY not configured");
+    // TEMP DIAG (safe): config presence only, never logs key values.
+    console.log(
+      "[AuthDiag] backend supabaseEnv urlPresent:",
+      Boolean(ENV.supabaseUrl),
+      "anonKeyPresent:",
+      Boolean(ENV.supabaseAnonKey)
+    );
     return null;
   }
 
@@ -32,6 +39,18 @@ export async function verifySupabaseToken(
     const { data, error } = await client.auth.getUser(accessToken);
     if (error || !data?.user) {
       console.warn("[SupabaseAuth] Token verification failed:", error?.message ?? "no user");
+      // TEMP DIAG (safe): failure detail only — name/status/message, never the token.
+      const err = error as { name?: unknown; status?: unknown; message?: unknown } | null;
+      console.log(
+        "[AuthDiag] backend verifyError name:",
+        typeof err?.name === "string" ? err.name : "(none)",
+        "status:",
+        typeof err?.status === "number" || typeof err?.status === "string"
+          ? String(err.status)
+          : "(none)",
+        "message:",
+        typeof err?.message === "string" ? err.message : "no user"
+      );
       return null;
     }
     return buildVerifiedUser(data.user);

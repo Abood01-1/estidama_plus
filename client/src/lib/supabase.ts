@@ -48,8 +48,15 @@ export async function getSupabaseAccessToken(): Promise<string | null> {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token ?? null;
     if (token) supabaseAccessToken = token;
+    // TEMP DIAG (safe): boolean only, never logs the token.
+    console.log("[AuthDiag] getSupabaseAccessToken hasToken:", Boolean(token));
     return token;
   } catch {
+    // TEMP DIAG (safe): boolean only.
+    console.log(
+      "[AuthDiag] getSupabaseAccessToken error, fallback hasToken:",
+      Boolean(supabaseAccessToken)
+    );
     return supabaseAccessToken;
   }
 }
