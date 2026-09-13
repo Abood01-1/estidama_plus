@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { startSupabaseLogin } from "./lib/supabaseAuth";
-import { supabaseAccessToken } from "./lib/supabase";
+import { getSupabaseAccessToken, supabaseAccessToken } from "./lib/supabase";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -52,10 +52,11 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "https://estidama-plus-api.onrender.com/api/trpc",
       transformer: superjson,
-      headers() {
-        // 1) New: Supabase access token as Bearer — server verifies JWT (no cold
-        //    start required). This is the primary auth for new sign-ins.
-        const token = supabaseAccessToken;
+      async headers() {
+        // 1) New: Supabase access token as Bearer — server verifies it with
+        //    Supabase auth.getUser() (no cold start required). Async fetch so
+        //    the token is fresh even right after the OAuth redirect.
+        const token = (await getSupabaseAccessToken()) ?? supabaseAccessToken;
         if (token) {
           return { Authorization: `Bearer ${token}` };
         }

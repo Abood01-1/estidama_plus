@@ -1,24 +1,5 @@
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createClient } from "@supabase/supabase-js";
 import { ENV } from "./env";
-
-/**
- * Server-side verification of Supabase Auth JWTs.
- *
- * The Render backend still needs to know "who is calling" for protected tRPC
- * procedures, but must NOT trust anything the frontend merely claims.
- * Instead, we verify the Supabase `access_token` (a JWT) against the
- * project's JWKS endpoint, exactly like a proper resource server.
- */
-
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
-
-function getJwks() {
-  if (!jwks) {
-    const url = new URL("/auth/v1/.well-known/jwks.json", ENV.supabaseUrl).toString();
-    jwks = createRemoteJWKSet(new URL(url));
-  }
-  return jwks;
-}
 
 export type SupabaseVerifiedUser = {
   sub: string; // Supabase user UUID
@@ -31,6 +12,11 @@ export type SupabaseVerifiedUser = {
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
+/**
+ * Verify a Supabase access token server-side via `auth.getUser()`.
+ * This accepts whatever signing scheme the project uses (HS256 or RS256)
+ * without trusting anything the frontend claims.
+ */
 export async function verifySupabaseToken(
   accessToken: string
 ): Promise<SupabaseVerifiedUser | null> {
@@ -40,37 +26,45 @@ export async function verifySupabaseToken(
   }
 
   try {
-    const { payload } = await jwtVerify(accessToken, getJwks(), {
-      algorithms: ["RS256"],
-      issuer: `${ENV.supabaseUrl}/auth/v1`,
-      audience: "authenticated",
+    const client = createClient(ENV.supabaseUrl, ENV.supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
-
-    return buildVerifiedUser(payload);
+    const { data, error } = await client.auth.getUser(accessToken);
+    if (error || !data?.user) {
+      console.warn("[SupabaseAuth] Token verification failed:", error?.message ?? "no user");
+      return null;
+    }
+    return buildVerifiedUser(data.user);
   } catch (error) {
     console.warn("[SupabaseAuth] Token verification failed:", String(error));
     return null;
   }
 }
 
-function buildVerifiedUser(payload: JWTPayload): SupabaseVerifiedUser | null {
-  const sub = payload.sub;
+type SupabaseUserLike = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+};
+
+function buildVerifiedUser(sbUser: SupabaseUserLike): SupabaseVerifiedUser | null {
+  const sub = sbUser.id;
   if (!isNonEmptyString(sub)) return null;
 
-  const email = isNonEmptyString(payload.email) ? payload.email : null;
-  const name =
-    isNonEmptyString(payload.name)
-      ? payload.name
-      : isNonEmptyString(payload.full_name)
-        ? payload.full_name
-        : null;
+  const email = isNonEmptyString(sbUser.email) ? sbUser.email : null;
 
   // Supabase stores Google profile data in `user_metadata` claims.
   const userMetadata =
-    payload.user_metadata && typeof payload.user_metadata === "object"
-      ? (payload.user_metadata as Record<string, unknown>)
+    sbUser.user_metadata && typeof sbUser.user_metadata === "object"
+      ? (sbUser.user_metadata as Record<string, unknown>)
       : {};
   const googleSub = isNonEmptyString(userMetadata.sub) ? userMetadata.sub : null;
+  const name =
+    isNonEmptyString(userMetadata.name)
+      ? (userMetadata.name as string)
+      : isNonEmptyString(userMetadata.full_name)
+        ? (userMetadata.full_name as string)
+        : null;
 
   return {
     sub,

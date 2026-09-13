@@ -42,6 +42,18 @@ supabase.auth.onAuthStateChange((_event, session: Session | null) => {
   supabaseAccessToken = session?.access_token ?? null;
 });
 
+/** Fresh access token (async) — never stale, even right after OAuth redirect. */
+export async function getSupabaseAccessToken(): Promise<string | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token ?? null;
+    if (token) supabaseAccessToken = token;
+    return token;
+  } catch {
+    return supabaseAccessToken;
+  }
+}
+
 export type { SupabaseUser };
 
 // Convert a Supabase user into the shape the app's `useAuth` hook expects.
