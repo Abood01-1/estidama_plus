@@ -29,8 +29,18 @@ export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
       _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
+    } catch (error: unknown) {
+      // Detailed init diagnostics only — never log DATABASE_URL or credentials.
+      const err = error as { message?: unknown; code?: unknown; name?: unknown; stack?: unknown };
+      const message = typeof err?.message === "string" ? err.message : String(error);
+      const code = typeof err?.code === "string" || typeof err?.code === "number" ? err.code : undefined;
+      const name = typeof err?.name === "string" ? err.name : undefined;
+      const stack = typeof err?.stack === "string" ? err.stack : undefined;
+      console.warn("[Database] Failed to initialize Drizzle");
+      console.warn("[Database] error message:", message);
+      if (code !== undefined) console.warn("[Database] error code:", code);
+      if (name !== undefined) console.warn("[Database] error name:", name);
+      if (stack !== undefined) console.warn("[Database] error stack:", stack);
       _db = null;
     }
   }
