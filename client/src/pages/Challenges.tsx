@@ -1,73 +1,42 @@
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { BRAND } from "@/lib/brand";
-import { ArrowLeft, Zap, Target, Clock, Trophy, Sparkles, CheckCircle2, Lock, Flame } from "lucide-react";
-
-const DAILY_CHALLENGES = [
-  {
-    id: 1,
-    title: "تقليل استخدام السيارة",
-    description: "استخدم المشي أو الدراجة بدلاً من السيارة لمسافة 5 كم",
-    category: "transport",
-    reward: 150,
-    difficulty: "سهل",
-    icon: "🚗",
-    progress: 60,
-  },
-  {
-    id: 2,
-    title: "توفير الكهرباء",
-    description: "قلل استهلاك الكهرباء بنسبة 15% اليوم",
-    category: "electricity",
-    reward: 200,
-    difficulty: "متوسط",
-    icon: "💡",
-    progress: 40,
-  },
-  {
-    id: 3,
-    title: "تناول طعام نباتي",
-    description: "تناول وجبة نباتية واحدة على الأقل اليوم",
-    category: "food",
-    reward: 100,
-    difficulty: "سهل",
-    icon: "🥗",
-    progress: 100,
-  },
-  {
-    id: 4,
-    title: "توفير المياه",
-    description: "قلل استهلاك المياه بنسبة 20%",
-    category: "water",
-    reward: 120,
-    difficulty: "متوسط",
-    icon: "💧",
-    progress: 0,
-  },
-  {
-    id: 5,
-    title: "إعادة التدوير",
-    description: "أعد تدوير 5 عناصر على الأقل",
-    category: "waste",
-    reward: 180,
-    difficulty: "صعب",
-    icon: "♻️",
-    progress: 20,
-  },
-  {
-    id: 6,
-    title: "تحدي الاستدامة الأسبوعي",
-    description: "أكمل 5 تحديات يومية متتالية",
-    category: "special",
-    reward: 500,
-    difficulty: "صعب جداً",
-    icon: "🏆",
-    progress: 80,
-  },
-];
+import { trpc } from "@/lib/trpc";
+import { ArrowLeft, Zap, Trophy, Sparkles, CheckCircle2, Lock, Flame, Coins } from "lucide-react";
 
 export default function ChallengesPage() {
   const [, setLocation] = useLocation();
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const daily = trpc.gamification.getDailyChallenges.useQuery();
+  const eco = trpc.gamification.getEcoCoins.useQuery();
+  const utils = trpc.useUtils();
+  const startMutation = trpc.gamification.startChallenge.useMutation({
+    onSuccess: () => { void utils.gamification.getDailyChallenges.invalidate(); },
+  });
+  const progressMutation = trpc.gamification.updateChallengeProgress.useMutation({
+    onSuccess: () => { void utils.gamification.getDailyChallenges.invalidate(); },
+  });
+  const completeMutation = trpc.gamification.completeChallenge.useMutation({
+    onSuccess: (data) => {
+      void utils.gamification.getDailyChallenges.invalidate();
+      void utils.gamification.getEcoCoins.invalidate();
+      void utils.gamification.getEcoTransactions.invalidate();
+      if (data.completed && !data.alreadyCompleted) {
+        setFeedback(`أحسنت! ربحت ${data.coinsEarned} عملة بيئية. السلسلة الحالية: ${data.streak}`);
+      } else if (data.alreadyCompleted) {
+        setFeedback("هذا التحدي مكتمل مسبقاً وتمت مكافأته.");
+      } else {
+        setFeedback("أكمل تقدم التحدي إلى 100% أولاً.");
+      }
+    },
+    onError: (err) => setFeedback(err.message),
+  });
+
+  const challenges = daily.data?.challenges ?? [];
+  const streak = daily.data?.streak ?? eco.data?.streak ?? 0;
+  const balance = daily.data?.balance ?? eco.data?.balance ?? 0;
 
   const getDifficultyStyle = (difficulty: string) => {
     switch (difficulty) {
@@ -81,18 +50,6 @@ export default function ChallengesPage() {
         return { bg: "rgba(207,20,43,0.12)", text: BRAND.colors.red, border: "rgba(207,20,43,0.25)" };
       default:
         return { bg: "rgba(107,114,128,0.08)", text: "#6B7280", border: "rgba(107,114,128,0.15)" };
-    }
-  };
-
-  const getCategoryIcon = (category: string) => {
-    switch (category) {
-      case "transport": return "🚗";
-      case "electricity": return "💡";
-      case "food": return "🥗";
-      case "water": return "💧";
-      case "waste": return "♻️";
-      case "special": return "🏆";
-      default: return "🎯";
     }
   };
 
@@ -157,15 +114,46 @@ export default function ChallengesPage() {
         </div>
 
         {/* ════════════════════════════════════════════════
-            CHALLENGES GRID
+            ECO COINS + STREAK SUMMARY (same layout, real data)
            ════════════════════════════════════════════════ */}
+        <div className="grid md:grid-cols-2 gap-5">
+          <div className="card-premium p-5 flex items-center gap-4">
+            <span className="text-3xl"><Coins className="w-8 h-8" style={{ color: BRAND.colors.gold }} /></span>
+            <div>
+              <div className="text-xs text-muted-foreground">رصيد العملات البيئية</div>
+              <div className="text-2xl font-bold">{eco.isLoading ? "…" : balance}</div>
+            </div>
+          </div>
+          <div className="card-premium p-5 flex items-center gap-4">
+            <span className="text-3xl"><Flame className="w-8 h-8" style={{ color: BRAND.colors.red }} /></span>
+            <div>
+              <div className="text-xs text-muted-foreground">السلسلة الحالية (أيام متتالية)</div>
+              <div className="text-2xl font-bold">{daily.isLoading ? "…" : streak}</div>
+            </div>
+          </div>
+        </div>
+        {feedback && (
+          <div className="card-premium p-4 text-sm font-medium" role="status">{feedback}</div>
+        )}
+
+        {/* ════════════════════════════════════════════════
+            CHALLENGES GRID (same cards, tRPC data)
+           ════════════════════════════════════════════════ */}
+        {daily.isLoading ? (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5 animate-pulse">
+            {[1, 2, 3].map((i) => (<div key={i} className="card-premium p-5 h-48" />))}
+          </div>
+        ) : challenges.length === 0 ? (
+          <div className="card-premium p-8 text-center text-sm text-muted-foreground">لا توجد تحديات نشطة اليوم</div>
+        ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {DAILY_CHALLENGES.map((challenge) => {
+          {challenges.map((challenge) => {
             const diffStyle = getDifficultyStyle(challenge.difficulty);
             const StatusIcon = getStatus(challenge.progress).icon;
             const status = getStatus(challenge.progress);
-            const isCompleted = challenge.progress >= 100;
+            const isCompleted = challenge.completed || challenge.progress >= 100;
             const isLocked = challenge.progress === 0;
+            const busy = startMutation.isPending || progressMutation.isPending || completeMutation.isPending;
             return (
               <div key={challenge.id} className={`card-premium p-5 flex flex-col ${isCompleted ? "border-green-200/50" : ""}`}>
                 <div className="flex items-start justify-between mb-3">
@@ -181,7 +169,7 @@ export default function ChallengesPage() {
 
                 <div className="flex items-center gap-1.5 mb-3 text-xs" style={{ color: BRAND.colors.gold }}>
                   <Trophy className="w-3.5 h-3.5" />
-                  <span className="font-semibold">{challenge.reward} نقطة</span>
+                  <span className="font-semibold">{challenge.reward} عملة بيئية</span>
                 </div>
 
                 <div className="mb-4">
@@ -192,7 +180,7 @@ export default function ChallengesPage() {
                   <div className="h-2 rounded-full bg-gray-100">
                     <div className="h-full rounded-full transition-all duration-500"
                       style={{
-                        width: `${challenge.progress}%`,
+                        width: `${Math.min(challenge.progress, 100)}%`,
                         background: challenge.progress >= 100
                           ? `linear-gradient(90deg, ${BRAND.colors.green}, ${BRAND.colors.greenLight})`
                           : `linear-gradient(90deg, ${BRAND.colors.gold}, ${BRAND.colors.goldLight})`,
@@ -200,21 +188,30 @@ export default function ChallengesPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between mt-auto">
+                <div className="flex items-center justify-between mt-auto gap-2">
                   <div className="flex items-center gap-1.5 text-xs" style={{ color: status.color }}>
                     <StatusIcon className="w-3.5 h-3.5" />
-                    <span className="font-medium">{status.label}</span>
+                    <span className="font-medium">{isCompleted ? "مكتمل" : status.label}</span>
                   </div>
-                  <Button className="text-xs h-8 px-4"
-                    variant={isCompleted ? "outline" : isLocked ? "secondary" : "default"}
-                    disabled={isLocked}>
-                    {isCompleted ? "مكتمل ✓" : isLocked ? "مغلق" : "ابدأ التحدي"}
-                  </Button>
+                  {isCompleted ? (
+                    <Button className="text-xs h-8 px-4" variant="outline" disabled>مكتمل ✓</Button>
+                  ) : isLocked ? (
+                    <Button className="text-xs h-8 px-4" variant="secondary" disabled={busy}
+                      onClick={() => startMutation.mutate({ challengeId: challenge.id })}>ابدأ التحدي</Button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button className="text-xs h-8 px-3" variant="secondary" disabled={busy}
+                        onClick={() => progressMutation.mutate({ challengeId: challenge.id, progress: 100 })}>تسجيل التقدم</Button>
+                      <Button className="text-xs h-8 px-3" variant="default" disabled={busy}
+                        onClick={() => completeMutation.mutate({ challengeId: challenge.id })}>إتمام</Button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
           })}
         </div>
+        )}
 
         {/* ════════════════════════════════════════════════
             WEEKLY CHALLENGE
@@ -233,15 +230,15 @@ export default function ChallengesPage() {
                   أكمل 5 تحديات يومية متتالية واحصل على شارة "سفير الاستدامة" و 500 نقطة إضافية!
                 </p>
                 <div className="flex items-center gap-2 text-xs" style={{ color: BRAND.colors.gold }}>
-                  <Clock className="w-4 h-4" />
-                  <span>ينتهي في: 3 أيام</span>
+                  <Sparkles className="w-4 h-4" />
+                  <span>السلسلة الحالية: {streak} أيام متتالية</span>
                 </div>
               </div>
               <div>
-                <div className="flex items-center gap-2 mb-3 text-sm font-semibold">تقدم التحدي الأسبوعي</div>
+                <div className="flex items-center gap-2 mb-3 text-sm font-semibold">تقدم التحدي الأسبوعي (السلسلة الحقيقية: {streak})</div>
                 <div className="space-y-2.5">
                   {[1, 2, 3, 4, 5].map((day) => {
-                    const done = day <= 3;
+                    const done = day <= Math.min(streak, 5);
                     return (
                       <div key={day} className="flex items-center gap-3">
                         <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${done ? "text-white" : "text-muted-foreground bg-gray-100 border border-border"}`}

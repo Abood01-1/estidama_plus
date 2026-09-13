@@ -5,8 +5,19 @@ import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
 import { z } from "zod";
 import { generateAIRecommendations } from "./recommendations";
 import { calculatePoints, updateUserPoints, checkAndAwardBadges, getUserAchievements, getLeaderboard } from "./gamification";
+import {
+  challengeRuleFor,
+  completeChallenge,
+  getChallengeStreak,
+  getEcoBalance,
+  getRecentEcoTransactions,
+  getTodayChallenges,
+  getUserChallengeProgress,
+  startChallengeProgress,
+} from "./challenges";
 import { getDb } from "./db";
-import { badges, carbonRecords } from "../drizzle/schema";
+import { badges, carbonRecords, dailyChallenges, userChallengeProgress } from "../drizzle/schema";
+import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
 export const appRouter = router({
@@ -161,6 +172,116 @@ export const appRouter = router({
       .input(z.object({ limit: z.number().default(10) }).optional())
       .query(async ({ input }) => {
         return await getLeaderboard(input?.limit || 10);
+      }),
+
+    // --- Phase 4: Eco Coins (ledger-based, server-derived balance) ---
+    getEcoCoins: protectedProcedure.query(async ({ ctx }) => {
+      const userId = ctx.user!.id;
+      const [balance, streak] = await Promise.all([
+        getEcoBalance(userId),
+        getChallengeStreak(userId),
+      ]);
+      return { balance, streak };
+    }),
+
+    getEcoTransactions: protectedProcedure
+      .input(z.object({ limit: z.number().min(1).max(50).default(20) }).optional())
+      .query(async ({ ctx, input }) => {
+        return await getRecentEcoTransactions(ctx.user!.id, input?.limit ?? 20);
+      }),
+
+    // --- Phase 4: Daily challenges (DB-backed, server-validated) ---
+    getDailyChallenges: protectedProcedure.query(async ({ ctx }) => {
+      const userId = ctx.user!.id;
+      const challenges = await getTodayChallenges();
+      const [progress, streak, balance] = await Promise.all([
+        getUserChallengeProgress(userId),
+        getChallengeStreak(userId),
+        getEcoBalance(userId),
+      ]);
+      const progressByChallenge = new Map(progress.map((p) => [p.challengeId, p]));
+      return {
+        challenges: challenges.map((c) => {
+          const rule = challengeRuleFor(c);
+          const p = progressByChallenge.get(c.id);
+          return {
+            id: c.id,
+            title: c.title,
+            description: c.description,
+            category: c.category,
+            reward: rule.reward,
+            target: rule.target,
+            icon: rule.icon,
+            difficulty: rule.difficulty,
+            progress: p?.progress ?? 0,
+            completed: (p?.completed ?? 0) === 1,
+            rewardClaimed: (p?.rewardClaimed ?? 0) === 1,
+          };
+        }),
+        streak,
+        balance,
+      };
+    }),
+
+    getChallengeProgress: protectedProcedure.query(async ({ ctx }) => {
+      const userId = ctx.user!.id;
+      const [progress, streak] = await Promise.all([
+        getUserChallengeProgress(userId),
+        getChallengeStreak(userId),
+      ]);
+      return { progress, streak };
+    }),
+
+    startChallenge: protectedProcedure
+      .input(z.object({ challengeId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+        const found = await db.select().from(dailyChallenges).where(eq(dailyChallenges.id, input.challengeId)).limit(1);
+        if (!found[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Challenge not found" });
+        return await startChallengeProgress(ctx.user!.id, input.challengeId);
+      }),
+
+    updateChallengeProgress: protectedProcedure
+      .input(z.object({ challengeId: z.number().int().positive(), progress: z.number().min(0).max(1000) }))
+      .mutation(async ({ ctx, input }) => {
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
+        const found = await db.select().from(dailyChallenges).where(eq(dailyChallenges.id, input.challengeId)).limit(1);
+        if (!found[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Challenge not found" });
+        const rule = challengeRuleFor(found[0]);
+        // Server clamps progress; completion/reward decided only in completeChallenge.
+        const clamped = Math.min(Math.max(Math.trunc(input.progress), 0), Math.max(rule.target, 100));
+        const existing = await db
+          .select()
+          .from(userChallengeProgress)
+          .where(and(eq(userChallengeProgress.userId, ctx.user!.id), eq(userChallengeProgress.challengeId, input.challengeId)))
+          .limit(1);
+        if (existing[0]) {
+          if ((existing[0].completed ?? 0) === 1) return existing[0];
+          await db.update(userChallengeProgress).set({ progress: clamped }).where(eq(userChallengeProgress.id, existing[0].id));
+          const updated = await db.select().from(userChallengeProgress).where(eq(userChallengeProgress.id, existing[0].id)).limit(1);
+          return updated[0];
+        }
+        await db.insert(userChallengeProgress).values({ userId: ctx.user!.id, challengeId: input.challengeId, progress: clamped });
+        const created = await db
+          .select()
+          .from(userChallengeProgress)
+          .where(and(eq(userChallengeProgress.userId, ctx.user!.id), eq(userChallengeProgress.challengeId, input.challengeId)))
+          .limit(1);
+        return created[0];
+      }),
+
+    completeChallenge: protectedProcedure
+      .input(z.object({ challengeId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await completeChallenge(ctx.user!.id, input.challengeId, checkAndAwardBadges);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to complete challenge";
+          const code = message === "Challenge not found" ? "NOT_FOUND" : "BAD_REQUEST";
+          throw new TRPCError({ code, message });
+        }
       }),
   }),
 });

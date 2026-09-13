@@ -152,16 +152,42 @@ export async function checkAndAwardBadges(userId: number): Promise<Badge[]> {
       reductionPct = null;
     }
 
-    // Completed challenge count from actual user_challenge_progress rows.
+    // Completed challenge count + TRUE streak from actual completion days.
+    // Streak = consecutive calendar days with >= 1 completed challenge.
     let completedChallenges = 0;
+    let trueStreak = 0;
     try {
       const progress = await db
         .select()
         .from(userChallengeProgress)
         .where(eq(userChallengeProgress.userId, userId));
       completedChallenges = progress.filter((p) => (p.completed ?? 0) > 0).length;
+      const days = new Set<string>();
+      for (const p of progress) {
+        if ((p.completed ?? 0) > 0 && p.completedAt) {
+          const d = new Date(p.completedAt);
+          days.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+        }
+      }
+      if (days.size > 0) {
+        const sorted = Array.from(days).sort();
+        const parse = (k: string) => {
+          const [y, m, d] = k.split("-").map(Number);
+          return new Date(y, (m ?? 1) - 1, d ?? 1);
+        };
+        let streak = 1;
+        let cursor = parse(sorted[sorted.length - 1]);
+        for (let i = sorted.length - 2; i >= 0; i--) {
+          const prev = parse(sorted[i]);
+          const diff = Math.round((cursor.getTime() - prev.getTime()) / 86400000);
+          if (diff === 1) { streak += 1; cursor = prev; }
+          else if (diff !== 0) { break; }
+        }
+        trueStreak = streak;
+      }
     } catch {
       completedChallenges = 0;
+      trueStreak = 0;
     }
 
     const newlyAwarded: Badge[] = [];
@@ -182,7 +208,11 @@ export async function checkAndAwardBadges(userId: number): Promise<Badge[]> {
         reductionPct >= requirement
       ) {
         shouldAward = true;
-      } else if (badge.type === "streak" && completedChallenges >= requirement) {
+      } else if (badge.type === "streak" && trueStreak >= requirement) {
+        shouldAward = true;
+      } else if (badge.type === "special" && completedChallenges >= requirement) {
+        // Legacy special badges that counted raw completions keep working,
+        // but streak badges now use the TRUE consecutive-day streak.
         shouldAward = true;
       }
 

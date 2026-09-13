@@ -88,7 +88,7 @@ export const dailyChallenges = mysqlTable("daily_challenges", {
   id: int("id").autoincrement().primaryKey(),
   title: varchar("title", { length: 100 }).notNull(),
   description: text("description"),
-  category: mysqlEnum("category", ["transport", "electricity", "water", "food", "waste"]),
+  category: mysqlEnum("category", ["transport", "electricity", "water", "food", "waste", "carbon", "education"]),
   targetReduction: int("targetReduction").notNull(),
   reward: int("reward").default(100).notNull(),
   startDate: timestamp("startDate").defaultNow(),
@@ -99,12 +99,32 @@ export const dailyChallenges = mysqlTable("daily_challenges", {
 export type DailyChallenge = typeof dailyChallenges.$inferSelect;
 export type InsertDailyChallenge = typeof dailyChallenges.$inferInsert;
 
+// Eco Coins ledger — audit trail. Balance is ALWAYS derived as SUM(amount).
+// Positive amount = earned, negative = spent. Clients can never set a balance.
+export const ecoTransactions = mysqlTable("eco_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  amount: int("amount").notNull(),
+  source: varchar("source", { length: 64 }).notNull(),
+  description: text("description"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type EcoTransaction = typeof ecoTransactions.$inferSelect;
+export type InsertEcoTransaction = typeof ecoTransactions.$inferInsert;
+
 // User Challenge Progress
 export const userChallengeProgress = mysqlTable("user_challenge_progress", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull(),
   challengeId: int("challengeId").notNull(),
   completed: int("completed").default(0),
+  // 0-100 progress reported by client, clamped server-side. Completion is
+  // derived server-side from progress >= 100 (or targetReduction reached).
+  progress: int("progress").default(0).notNull(),
+  // 0 = reward not claimed, 1 = reward already awarded via eco_transactions.
+  // Guards against duplicate rewards even if completeChallenge is retried.
+  rewardClaimed: int("rewardClaimed").default(0).notNull(),
   startedAt: timestamp("startedAt").defaultNow(),
   completedAt: timestamp("completedAt"),
 });
