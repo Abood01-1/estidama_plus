@@ -67,6 +67,20 @@ async function startServer() {
     console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
   }
 
+  // One-time safe startup diagnostic: DATABASE_URL presence + host/db only.
+  // Never logs username, password, query params, or the full URL.
+  const startupDbUrl = process.env.DATABASE_URL;
+  console.log("[Startup] DATABASE_URL EXISTS:", Boolean(startupDbUrl));
+  if (startupDbUrl) {
+    try {
+      const parsed = new URL(startupDbUrl);
+      const dbName = parsed.pathname.replace(/^\//, "").split("/")[0] || "(unknown)";
+      console.log("[Startup] db host:", parsed.hostname, "db:", dbName);
+    } catch {
+      console.log("[Startup] db host: (unparseable)");
+    }
+  }
+
   server.listen(port, "0.0.0.0", () => {
   console.log(`Server running on port ${port}`);
 });
