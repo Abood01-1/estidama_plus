@@ -9,6 +9,8 @@ import { registerGoogleAuthRoutes } from "../googleAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { getDb } from "../db";
+import { sql } from "drizzle-orm";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -78,6 +80,31 @@ async function startServer() {
       console.log("[Startup] db host:", parsed.hostname, "db:", dbName);
     } catch {
       console.log("[Startup] db host: (unparseable)");
+    }
+
+    // Awaited connectivity test with the existing drizzle-orm/mysql2 setup.
+    // Never logs credentials or the DATABASE_URL.
+    try {
+      const db = await getDb();
+      if (!db) {
+        throw new Error("getDb() returned null");
+      }
+      await db.execute(sql`SELECT 1`);
+      console.log("[Database] Connection test: SUCCESS");
+    } catch (error: unknown) {
+      const err = error as { message?: unknown; code?: unknown };
+      const message =
+        typeof err?.message === "string" ? err.message : "Unknown database error";
+      const code =
+        typeof err?.code === "string" || typeof err?.code === "number"
+          ? err.code
+          : undefined;
+      console.log("[Database] Connection test: FAILED");
+      if (code !== undefined) {
+        console.log("[Database] error code:", code, "message:", message);
+      } else {
+        console.log("[Database] error message:", message);
+      }
     }
   }
 
