@@ -15,6 +15,13 @@
       "when": 1783589103802,
       "tag": "0001_tricky_zarda",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1789306117850,
+      "tag": "0002_closed_morph",
+      "breakpoints": true
     }
   ]
 }

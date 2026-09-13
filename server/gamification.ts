@@ -1,73 +1,18 @@
-import { eq, and } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { userPoints, userBadges, badges, carbonRecords } from "../drizzle/schema";
-import { ENV } from "./_core/env";
+import { eq, and, desc } from "drizzle-orm";
+import {
+  userPoints,
+  userBadges,
+  badges,
+  carbonRecords,
+  userChallengeProgress,
+  type Badge,
+} from "../drizzle/schema";
+import { getDb } from "./db";
 
-let _db: ReturnType<typeof drizzle> | null = null;
-
-async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
+/** Single source of truth for level: derived from lifetime totalPoints. */
+export function calculateLevel(totalPoints: number): number {
+  return Math.floor(Math.max(0, totalPoints) / 500) + 1;
 }
-
-// Badge definitions
-export const BADGE_DEFINITIONS = [
-  {
-    name: "البداية الخضراء",
-    description: "حقق أول 100 نقطة",
-    icon: "🌱",
-    requirement: 100,
-    type: "points" as const,
-    color: "#00ff00",
-  },
-  {
-    name: "محارب الاستدامة",
-    description: "جمع 500 نقطة",
-    icon: "⚔️",
-    requirement: 500,
-    type: "points" as const,
-    color: "#ff007f",
-  },
-  {
-    name: "بطل الكوكب",
-    description: "جمع 1000 نقطة",
-    icon: "🌍",
-    requirement: 1000,
-    type: "points" as const,
-    color: "#00ffff",
-  },
-  {
-    name: "مقلل الانبعاثات",
-    description: "قلل بصمتك بنسبة 20%",
-    icon: "📉",
-    requirement: 20,
-    type: "reduction" as const,
-    color: "#ffff00",
-  },
-  {
-    name: "الرياح الخضراء",
-    description: "أكمل 7 تحديات متتالية",
-    icon: "💨",
-    requirement: 7,
-    type: "streak" as const,
-    color: "#00ff7f",
-  },
-  {
-    name: "سفير الاستدامة",
-    description: "وصل إلى المستوى 10",
-    icon: "👑",
-    requirement: 10,
-    type: "special" as const,
-    color: "#ff00ff",
-  },
-];
 
 // Points calculation
 export async function calculatePoints(
@@ -131,7 +76,7 @@ export async function updateUserPoints(userId: number, pointsEarned: number) {
     if (existingPoints.length > 0) {
       const current = existingPoints[0];
       const newTotal = current.totalPoints + pointsEarned;
-      const newLevel = Math.floor(newTotal / 500) + 1;
+      const newLevel = calculateLevel(newTotal);
 
       await db
         .update(userPoints)
@@ -147,7 +92,7 @@ export async function updateUserPoints(userId: number, pointsEarned: number) {
         userId,
         points: pointsEarned,
         totalPoints: pointsEarned,
-        level: 1,
+        level: calculateLevel(pointsEarned),
       });
     }
   } catch (error) {
@@ -155,8 +100,11 @@ export async function updateUserPoints(userId: number, pointsEarned: number) {
   }
 }
 
-// Check and award badges
-export async function checkAndAwardBadges(userId: number) {
+// Check and award badges — server-side only.
+// The `badges` table is the single source of truth: every badge type
+// (points / reduction / streak / special) is read from the DB, never hardcoded.
+// Returns the full badge rows that were newly awarded (for notifications).
+export async function checkAndAwardBadges(userId: number): Promise<Badge[]> {
   const db = await getDb();
   if (!db) return [];
 
@@ -171,54 +119,97 @@ export async function checkAndAwardBadges(userId: number) {
     const currentPoints = userPointsData[0].totalPoints;
     const currentLevel = userPointsData[0].level;
 
-    const earnedBadges: string[] = [];
+    // All badge definitions come from the DB.
+    const allBadges = await db.select().from(badges);
+    if (allBadges.length === 0) return [];
 
-    // Check each badge requirement
-    for (const badgeDef of BADGE_DEFINITIONS) {
+    // Already-earned badge ids — prevents duplicate user_badges records
+    // without one query per badge.
+    const earnedRows = await db
+      .select({ badgeId: userBadges.badgeId })
+      .from(userBadges)
+      .where(eq(userBadges.userId, userId));
+    const earnedIds = new Set(earnedRows.map((r) => r.badgeId));
+
+    // Reduction % = (earliest total - latest total) / earliest total * 100,
+    // using actual carbon_records ordered by insertion (id). Null when fewer
+    // than 2 records exist.
+    let reductionPct: number | null = null;
+    try {
+      const records = await db
+        .select()
+        .from(carbonRecords)
+        .where(eq(carbonRecords.userId, userId))
+        .orderBy((t) => t.id);
+      if (records.length >= 2) {
+        const earliest = records[0].total ?? 0;
+        const latest = records[records.length - 1].total ?? 0;
+        if (earliest > 0) {
+          reductionPct = ((earliest - latest) / earliest) * 100;
+        }
+      }
+    } catch {
+      reductionPct = null;
+    }
+
+    // Completed challenge count from actual user_challenge_progress rows.
+    let completedChallenges = 0;
+    try {
+      const progress = await db
+        .select()
+        .from(userChallengeProgress)
+        .where(eq(userChallengeProgress.userId, userId));
+      completedChallenges = progress.filter((p) => (p.completed ?? 0) > 0).length;
+    } catch {
+      completedChallenges = 0;
+    }
+
+    const newlyAwarded: Badge[] = [];
+
+    for (const badge of allBadges) {
+      if (earnedIds.has(badge.id)) continue;
+
       let shouldAward = false;
+      const requirement = badge.requirement ?? 0;
 
-      if (badgeDef.type === "points" && currentPoints >= badgeDef.requirement) {
+      if (badge.type === "points" && currentPoints >= requirement) {
         shouldAward = true;
-      } else if (badgeDef.type === "special" && currentLevel >= badgeDef.requirement) {
+      } else if (badge.type === "special" && currentLevel >= requirement) {
+        shouldAward = true;
+      } else if (
+        badge.type === "reduction" &&
+        reductionPct !== null &&
+        reductionPct >= requirement
+      ) {
+        shouldAward = true;
+      } else if (badge.type === "streak" && completedChallenges >= requirement) {
         shouldAward = true;
       }
 
       if (shouldAward) {
-        // Check if already earned
-        const existingBadge = await db
+        // Re-check inside the loop so concurrent calls can't double-award.
+        const alreadyEarned = await db
           .select()
-          .from(badges)
+          .from(userBadges)
           .where(
             and(
-              eq(badges.name, badgeDef.name),
-              eq(badges.type, badgeDef.type)
+              eq(userBadges.userId, userId),
+              eq(userBadges.badgeId, badge.id)
             )
           );
 
-        if (existingBadge.length > 0) {
-          const badgeId = existingBadge[0].id;
-          const userBadgeExists = await db
-            .select()
-            .from(userBadges)
-            .where(
-              and(
-                eq(userBadges.userId, userId),
-                eq(userBadges.badgeId, badgeId)
-              )
-            );
-
-          if (userBadgeExists.length === 0) {
-            await db.insert(userBadges).values({
-              userId,
-              badgeId,
-            });
-            earnedBadges.push(badgeDef.name);
-          }
+        if (alreadyEarned.length === 0) {
+          await db.insert(userBadges).values({
+            userId,
+            badgeId: badge.id,
+          });
+          earnedIds.add(badge.id);
+          newlyAwarded.push(badge);
         }
       }
     }
 
-    return earnedBadges;
+    return newlyAwarded;
   } catch (error) {
     console.error("Error checking badges:", error);
     return [];
@@ -260,7 +251,7 @@ export async function getLeaderboard(limit: number = 10) {
     const leaderboard = await db
       .select()
       .from(userPoints)
-      .orderBy((t) => t.totalPoints)
+      .orderBy(desc(userPoints.totalPoints))
       .limit(limit);
 
     return leaderboard;

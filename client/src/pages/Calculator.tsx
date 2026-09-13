@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
+import { trpc } from "@/lib/trpc";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CARBON_FACTORS, BENCHMARKS, RATING_LEVELS } from "@shared/carbon-constants";
 import { ArrowLeft, Calculator, Leaf, Sparkles, BarChart3, ChevronRight, Check, Brain, TrendingDown, Zap } from "lucide-react";
 import { BRAND } from "@/lib/brand";
+import { useAchievementNotifications, type AchievementNotification } from "@/hooks/useAchievementNotification";
 
 export default function CalculatorPage() {
   const [, setLocation] = useLocation();
@@ -28,9 +30,44 @@ export default function CalculatorPage() {
 
   const [results, setResults] = useState<any>(null);
   const [calculating, setCalculating] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [pointsEarned, setPointsEarned] = useState<number | null>(null);
+  // Badges newly awarded by the server for this calculation — shown via toasts only.
+  const [newAchievements, setNewAchievements] = useState<AchievementNotification[] | null>(null);
+
+  useAchievementNotifications(newAchievements);
+
+  // Persist the calculated result to carbon_records for the logged-in user.
+  // No userId is sent — the server uses ctx.user.id. Guests skip silently.
+  // Points + badges are computed server-side; the client only displays them.
+  const saveCarbonRecord = trpc.gamification.saveCarbonRecord.useMutation({
+    onSuccess: (data) => {
+      if (typeof data?.pointsEarned === "number") {
+        setPointsEarned(data.pointsEarned);
+      }
+      // Only non-empty newBadges produce toasts (hook no-ops on empty arrays).
+      const earned = (data?.newBadges ?? []).map((badge: any) => ({
+        badgeId: badge.id,
+        badgeName: badge.name,
+        badgeIcon: badge.icon ?? "🏅",
+        points: typeof data?.pointsEarned === "number" ? data.pointsEarned : 0,
+      }));
+      setNewAchievements(earned);
+    },
+    onError: (error) => {
+      // Calculation result stays visible; only persistence reports an error.
+      // UNAUTHORIZED (guest) is not an error state.
+      if (error?.data?.code !== "UNAUTHORIZED") {
+        setSaveError("تعذر حفظ النتيجة. يمكنك إعادة المحاولة بحساب جديد.");
+      }
+    },
+  });
 
   const calculateCarbon = () => {
     setCalculating(true);
+    setSaveError(null);
+    setPointsEarned(null);
+    setNewAchievements(null);
     
     setTimeout(() => {
       const carEmissions = (formData.carKmPerYear * CARBON_FACTORS.TRANSPORT.car[formData.carType as keyof typeof CARBON_FACTORS.TRANSPORT.car]) / 1000;
@@ -48,15 +85,21 @@ export default function CalculatorPage() {
       ) / 1000;
       const totalCarbon = transportTotal + electricityEmissions + waterEmissions + foodEmissions;
 
-      setResults({
+      const computed = {
         transport: transportTotal,
         electricity: electricityEmissions,
         water: waterEmissions,
         food: foodEmissions,
+        waste: 0,
         total: totalCarbon,
-      });
+      };
+
+      setResults(computed);
       setCalculating(false);
       setStep(4);
+
+      // Persist for authenticated users; guests (401) are ignored silently.
+      saveCarbonRecord.mutate(computed);
     }, 1500);
   };
 
@@ -377,6 +420,14 @@ export default function CalculatorPage() {
             </div>
 
             {/* Actions */}
+            {saveError && (
+              <p className="text-xs text-muted-foreground text-center mb-3">{saveError}</p>
+            )}
+            {pointsEarned !== null && (
+              <p className="text-sm text-muted-foreground text-center mb-3">
+                نقاط مكتسبة: {pointsEarned}
+              </p>
+            )}
             <div className="flex flex-wrap gap-3 justify-center">
               <Button onClick={() => { setResults(null); setStep(1); setFormData({ ...formData, carKmPerYear: 0, flightHoursPerYear: 0, publicTransportKmPerMonth: 0, electricityKwhPerMonth: 0, waterM3PerMonth: 0, beefKgPerMonth: 0, chickenKgPerMonth: 0, fishKgPerMonth: 0, vegetablesKgPerMonth: 0, dairyKgPerMonth: 0 }); }} className="btn btn-ghost">
                 حساب جديد
